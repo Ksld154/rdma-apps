@@ -6,8 +6,7 @@ static int on_disconnect(struct rdma_cm_id *id);
 static int on_event(struct rdma_cm_event *event);
 static void usage(const char *argv0);
 
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
 	struct sockaddr_in6 addr;
 	struct rdma_cm_event *event = NULL;
 	struct rdma_cm_id *listener = NULL;
@@ -52,8 +51,7 @@ int main(int argc, char **argv)
 	return 0;
 }
 
-int on_connect_request(struct rdma_cm_id *id)
-{
+int on_connect_request(struct rdma_cm_id *id) {
 	struct rdma_conn_param cm_params;
 
 	printf("received connection request.\n");
@@ -65,23 +63,19 @@ int on_connect_request(struct rdma_cm_id *id)
 	return 0;
 }
 
-int on_connection(struct rdma_cm_id *id)
-{
+int on_connection(struct rdma_cm_id *id) {
 	on_connect(id->context);
-
 	return 0;
 }
 
-int on_disconnect(struct rdma_cm_id *id)
-{
+int on_disconnect(struct rdma_cm_id *id) {
 	printf("peer disconnected.\n");
 
 	destroy_connection(id->context);
 	return 0;
 }
 
-int on_event(struct rdma_cm_event *event)
-{
+int on_event(struct rdma_cm_event *event) {
 	int r = 0;
 
 	if (event->event == RDMA_CM_EVENT_CONNECT_REQUEST)
@@ -96,8 +90,7 @@ int on_event(struct rdma_cm_event *event)
 	return r;
 }
 
-void usage(const char *argv0)
-{
+void usage(const char *argv0) {
 	fprintf(stderr, "usage: %s <mode>\n  mode = \"read\", \"write\"\n", argv0);
 	exit(1);
 }

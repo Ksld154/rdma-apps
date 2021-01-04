@@ -67,14 +67,15 @@ static void send_message(struct connection *conn);
 static struct context *s_ctx = NULL;
 static enum mode s_mode = M_WRITE;
 
-void die(const char *reason)
-{
+void die(const char *reason) {
 	fprintf(stderr, "%s\n", reason);
 	exit(EXIT_FAILURE);
 }
 
-void build_connection(struct rdma_cm_id *id)
-{
+// 1. Build verb context, create a protection domain, completion queue
+// 2. Create send-receive queue pair, and register memory region
+// 3. Pre-post RECV WR 
+void build_connection(struct rdma_cm_id *id) {
 	struct connection *conn;
 	struct ibv_qp_init_attr qp_attr;
 
@@ -97,8 +98,7 @@ void build_connection(struct rdma_cm_id *id)
 	post_receives(conn);
 }
 
-void build_context(struct ibv_context *verbs)
-{
+void build_context(struct ibv_context *verbs) {
 	if (s_ctx) {
 		if (s_ctx->ctx != verbs)
 			die("cannot handle events in more than one context.");
@@ -118,16 +118,18 @@ void build_context(struct ibv_context *verbs)
 	TEST_NZ(pthread_create(&s_ctx->cq_poller_thread, NULL, poll_cq, NULL));
 }
 
-void build_params(struct rdma_conn_param *params)
-{
+// Control the number of simultaneous outstanding RDMA read requests
+void build_params(struct rdma_conn_param *params) {
 	memset(params, 0, sizeof(*params));
 
 	params->initiator_depth = params->responder_resources = 1;
-	params->rnr_retry_count = 7; /* infinite retry */
+
+	// Infinite retry if the peer responds with a receiver-not-ready (RNR) error 
+	// i.e. SEND WR is posted before a corresponding RECV WR is posted on the peer
+	params->rnr_retry_count = 7; 
 }
 
-void build_qp_attr(struct ibv_qp_init_attr *qp_attr)
-{
+void build_qp_attr(struct ibv_qp_init_attr *qp_attr) {
 	memset(qp_attr, 0, sizeof(*qp_attr));
 
 	qp_attr->send_cq = s_ctx->cq;
@@ -140,8 +142,7 @@ void build_qp_attr(struct ibv_qp_init_attr *qp_attr)
 	qp_attr->cap.max_recv_sge = 1;
 }
 
-void destroy_connection(void *context)
-{
+void destroy_connection(void *context) {
 	struct connection *conn = (struct connection *)context;
 
 	rdma_destroy_qp(conn->id);
@@ -161,26 +162,23 @@ void destroy_connection(void *context)
 	free(conn);
 }
 
-void * get_local_message_region(void *context)
-{
-	if (s_mode == M_WRITE)
+void * get_local_message_region(void *context) {
+	if (s_mode == M_WRITE)  // write local msg to remote
 		return ((struct connection *)context)->rdma_local_region;
-	else
+	else  // get remote msg. to local
 		return ((struct connection *)context)->rdma_remote_region;
 }
 
-char * get_peer_message_region(struct connection *conn)
-{
-	if (s_mode == M_WRITE)
+char * get_peer_message_region(struct connection *conn) {
+	if (s_mode == M_WRITE)  // write local msg to remote
 		return conn->rdma_remote_region;
 	else
 		return conn->rdma_local_region;
 }
 
 
-// The polling thread detects a WR is completed
-void on_completion(struct ibv_wc *wc)
-{
+// Main part!! The polling thread detects a WR is completed
+void on_completion(struct ibv_wc *wc) {
 	struct connection *conn = (struct connection *)(uintptr_t)wc->wr_id;
 
 	if (wc->status != IBV_WC_SUCCESS)
@@ -227,7 +225,7 @@ void on_completion(struct ibv_wc *wc)
 		wr.num_sge = 1;
 		wr.send_flags = IBV_SEND_SIGNALED;
 		
-		// pass the peer’s RDMA address/key
+		// Pass the peer’s RDMA address/key, prove we have access right to remote blocks
 		// not required to use conn->peer_mr.addr for remote_addr, 
 		// could use any address falling within the bounds of the memory region registered with ibv_reg_mr()
 		wr.wr.rdma.remote_addr = (uintptr_t)conn->peer_mr.addr; 
@@ -237,12 +235,13 @@ void on_completion(struct ibv_wc *wc)
 		sge.length = RDMA_BUFFER_SIZE;
 		sge.lkey = conn->rdma_local_mr->lkey;
 
+		// Post RDMA READ/WRITE operation!
 		TEST_NZ(ibv_post_send(conn->qp, &wr, &bad_wr));
 
 		conn->send_msg->type = MSG_DONE;
 		send_message(conn);
-
 	} 
+
 	// This indicating that we’ve sent MSG_DONE and received MSG_DONE from the peer. 
 	// It means it is safe to print the message buffer and disconnect
 	else if (conn->send_state == SS_DONE_SENT && conn->recv_state == RS_DONE_RECV) {
@@ -251,13 +250,11 @@ void on_completion(struct ibv_wc *wc)
 	}
 }
 
-void on_connect(void *context)
-{
+void on_connect(void *context) {
 	((struct connection *)context)->connected = 1;
 }
 
-void * poll_cq(void *ctx)
-{
+void * poll_cq(void *ctx) {
 	struct ibv_cq *cq;
 	struct ibv_wc wc;
 
@@ -273,8 +270,7 @@ void * poll_cq(void *ctx)
 	return NULL;
 }
 
-void post_receives(struct connection *conn)
-{
+void post_receives(struct connection *conn) {
 	struct ibv_recv_wr wr, *bad_wr = NULL;
 	struct ibv_sge sge;
 
@@ -290,41 +286,49 @@ void post_receives(struct connection *conn)
 	TEST_NZ(ibv_post_recv(conn->qp, &wr, &bad_wr));
 }
 
-void register_memory(struct connection *conn)
-{
+void register_memory(struct connection *conn) {
 	conn->send_msg = malloc(sizeof(struct message));
 	conn->recv_msg = malloc(sizeof(struct message));
 
 	conn->rdma_local_region = malloc(RDMA_BUFFER_SIZE);
 	conn->rdma_remote_region = malloc(RDMA_BUFFER_SIZE);
 
+	// Memory region for local SEND queue
 	TEST_Z(conn->send_mr = ibv_reg_mr(
 		s_ctx->pd, 
 		conn->send_msg, 
 		sizeof(struct message), 
-		0));
+		0));  // LOCAL_READ is enabled by default
 
+	// Memory region for local RECV queue
 	TEST_Z(conn->recv_mr = ibv_reg_mr(
 		s_ctx->pd, 
 		conn->recv_msg, 
 		sizeof(struct message), 
 		IBV_ACCESS_LOCAL_WRITE));
 
+	// Memory region for READ/WRITE to local RDMA memory blocks
 	TEST_Z(conn->rdma_local_mr = ibv_reg_mr(
 		s_ctx->pd, 
 		conn->rdma_local_region, 
 		RDMA_BUFFER_SIZE, 
 		((s_mode == M_WRITE) ? 0 : IBV_ACCESS_LOCAL_WRITE)));
+		// for RDMA write: we read local memory content, and then write it to remote memory. 
+		//                 Therefore we only need LOCAL_READ for local MR
+		// for RDMA read:  we read remote memory content, and then write it to local memory. 
+		//                 Therefore we need LOCAL_WRITE for local MR
 
+	// Memory region for READ/WRITE to remote RDMA memory blocks
 	TEST_Z(conn->rdma_remote_mr = ibv_reg_mr(
 		s_ctx->pd, 
 		conn->rdma_remote_region, 
 		RDMA_BUFFER_SIZE, 
 		((s_mode == M_WRITE) ? (IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE) : IBV_ACCESS_REMOTE_READ)));
+		// for RDMA write: we perform a remote write, so we need IBV_ACCESS_REMOTE_WRITE along with LOCAL_WRITE(it's necessary from manual)
+		// for RDMA read:  we perform a remote read, so we need IBV_ACCESS_REMOTE_READ
 }
 
-void send_message(struct connection *conn)
-{
+void send_message(struct connection *conn) {
 	struct ibv_send_wr wr, *bad_wr = NULL;
 	struct ibv_sge sge;
 
@@ -346,8 +350,7 @@ void send_message(struct connection *conn)
 }
 
 // Sends memory descriptors(address and access key) to peer
-void send_mr(void *context)
-{
+void send_mr(void *context) {
 	struct connection *conn = (struct connection *)context;
 
 	conn->send_msg->type = MSG_MR;
@@ -356,7 +359,6 @@ void send_mr(void *context)
 	send_message(conn);
 }
 
-void set_mode(enum mode m)
-{
+void set_mode(enum mode m) {
 	s_mode = m;
 }

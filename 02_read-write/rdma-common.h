@@ -12,8 +12,8 @@
 #define TEST_Z(x)  do { if (!(x)) die("error: " #x " failed (returned zero/null)."); } while (0)
 
 enum mode {
-  M_WRITE,
-  M_READ
+	M_WRITE,
+	M_READ
 };
 
 void die(const char *reason);
