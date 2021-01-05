@@ -52,9 +52,13 @@ int main(int argc, char **argv)
 int on_addr_resolved(struct rdma_cm_id *id)
 {
 	printf("address resolved.\n");
-
+	fflush(stdout);
 	build_connection(id);
 	sprintf(get_local_message_region(id->context), "message from active/client side with pid %d", getpid());
+	// printf("1\n");
+	printf("Local buffer: %s\n", (char*)get_local_message_region(id->context));
+	fflush(stdout);
+
 	TEST_NZ(rdma_resolve_route(id, TIMEOUT_IN_MS));
 
 	return 0;
@@ -68,8 +72,8 @@ int on_connection(struct rdma_cm_id *id)
 	return 0;
 }
 
-int on_disconnect(struct rdma_cm_id *id)
-{
+int on_disconnect(struct rdma_cm_id *id) {
+	usleep(500);
 	printf("disconnected.\n");
 
 	destroy_connection(id->context);
