@@ -194,7 +194,10 @@ void on_completion(struct ibv_wc *wc) {
 		if (conn->recv_msg->type == MSG_MR) {
 			memcpy(&conn->peer_mr, &conn->recv_msg->data.mr, sizeof(conn->peer_mr));
 			post_receives(conn); /* only rearm for MSG_MR */
-			
+			// printf("Remote memory addr: %s\n", (char*)conn->peer_mr.addr);
+			printf("Remote memory addr: 0x%" PRIx64 "\n", (u_int64_t)conn->peer_mr.addr);
+			printf("Remote memory block length: %zu\n", conn->peer_mr.length);
+
 			/* received peer's MR before sending ours, so send ours back */
 			if (conn->send_state == SS_INIT) 
 				send_mr(conn);
@@ -202,7 +205,12 @@ void on_completion(struct ibv_wc *wc) {
 
 	} else {
 		conn->send_state++;
-		printf("send completed successfully.\n");
+		if(conn->send_state == SS_MR_SENT)
+			printf("MSG_MR send completed successfully.\n");
+		else if(conn->send_state == SS_RDMA_SENT)
+			printf("RDMA_OPs send completed successfully.\n");
+		else if(conn->send_state == SS_DONE_SENT)
+			printf("MSG_DONE send completed successfully.\n");
 	}
 	
 	// If we’ve both sent our MR and received the peer’s MR. 
@@ -245,6 +253,7 @@ void on_completion(struct ibv_wc *wc) {
 	// This indicating that we’ve sent MSG_DONE and received MSG_DONE from the peer. 
 	// It means it is safe to print the message buffer and disconnect
 	else if (conn->send_state == SS_DONE_SENT && conn->recv_state == RS_DONE_RECV) {
+		// printf("send_state: %d\n", conn->send_state);
 		printf("remote buffer: %s\n", get_peer_message_region(conn));
 		rdma_disconnect(conn->id);
 	}
@@ -292,6 +301,9 @@ void register_memory(struct connection *conn) {
 
 	conn->rdma_local_region = malloc(RDMA_BUFFER_SIZE);
 	conn->rdma_remote_region = malloc(RDMA_BUFFER_SIZE);
+
+	memset(conn->rdma_local_region, 0, RDMA_BUFFER_SIZE);
+	memset(conn->rdma_remote_region, 0, RDMA_BUFFER_SIZE);
 
 	// Memory region for local SEND queue
 	TEST_Z(conn->send_mr = ibv_reg_mr(

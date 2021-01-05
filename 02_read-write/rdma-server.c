@@ -54,10 +54,11 @@ int main(int argc, char **argv) {
 int on_connect_request(struct rdma_cm_id *id) {
 	struct rdma_conn_param cm_params;
 
-	printf("received connection request.\n");
+	printf("\nreceived connection request.\n");
 	build_connection(id);
 	build_params(&cm_params);
 	sprintf(get_local_message_region(id->context), "message from passive/server side with pid %d", getpid());
+	printf("Local buffer: %s\n", (char*)get_local_message_region(id->context));
 	TEST_NZ(rdma_accept(id, &cm_params));
 
 	return 0;
@@ -69,6 +70,7 @@ int on_connection(struct rdma_cm_id *id) {
 }
 
 int on_disconnect(struct rdma_cm_id *id) {
+	usleep(500);
 	printf("peer disconnected.\n");
 
 	destroy_connection(id->context);
