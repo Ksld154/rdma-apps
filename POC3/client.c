@@ -143,8 +143,8 @@ static void on_completion(struct ibv_wc *wc) {
 
 int main(int argc, char **argv) {
 	
-	if (argc != 3) {
-		fprintf(stderr, "usage: %s <server-address> <file-name>\n", argv[0]);
+	if (argc != 2) {
+		fprintf(stderr, "usage: %s <server-address>\n", argv[0]);
 		return 1;
 	}
 

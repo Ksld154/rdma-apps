@@ -18,6 +18,8 @@ struct conn_context {
 
 	int 	fd;
 	char 	file_name[MAX_FILE_NAME];
+
+	char 	last_time_data[BUFFER_SIZE];
 };
 
 double get_elapsed_time(struct timespec t1, struct timespec t2) {
@@ -84,6 +86,8 @@ static void on_pre_conn(struct rdma_cm_id *id) {
 	id->context = ctx;
 	ctx->file_name[0] = '\0'; // take this to mean we don't have the file name
 
+	memset(ctx->last_time_data, 0, sizeof(ctx->last_time_data));
+
 	// buffer for receiving client's data chunk
 	posix_memalign((void **)&ctx->buffer, sysconf(_SC_PAGESIZE), BUFFER_SIZE);  // similar with malloc()
 	TEST_Z(ctx->buffer_mr = ibv_reg_mr(rc_get_pd(), ctx->buffer, BUFFER_SIZE, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE));
@@ -115,45 +119,27 @@ static void on_completion(struct ibv_wc *wc) {
 	if (wc->opcode == IBV_WC_RECV_RDMA_WITH_IMM) {
 		uint32_t size = ntohl(wc->imm_data);
 
-		if (size == 0) {
+		if (size == 1) {
 			ctx->msg->id = MSG_DONE;
 			send_message(id);
 
 			// don't need post_receive() since we're done with this connection
-		} else if (ctx->file_name[0]) { 
-			// we have filename and an open fd, so we are ready to append client's data into disk
-			printf("received %i bytes.\n", size);
-
-			ssize_t ret = write(ctx->fd, ctx->buffer, size);
-			if (ret != size)
-				rc_die("write() failed");
-
-			post_receive(id);
-
-			ctx->msg->id = MSG_READY;
-			send_message(id);
-
 		} else { 
-			// we have just got filename, 
-			// so we need to open an fd and reply MSG_READY to notify client we are ready to receive data chunks
-			size = (size > MAX_FILE_NAME) ? MAX_FILE_NAME : size;
-			memcpy(ctx->file_name, ctx->buffer, size);
-			ctx->file_name[size - 1] = '\0';
 
-			printf("opening file %s\n", ctx->file_name);
-			// clock_gettime(CLOCK_REALTIME, &ts1);
+			//  print when buffer content has changed
+			if(strcmp(ctx->last_time_data, ctx->buffer) != 0) {
+				// printf("received %i bytes.\n", size);
+				printf("Received data: %s\n", ctx->buffer);
+			}
 
-			// ctx->fd = open(ctx->file_name, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-			ctx->fd = open(ctx->file_name, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-
-			if (ctx->fd == -1)
-				rc_die("open() failed");
+			strncpy(ctx->last_time_data, ctx->buffer, strlen(ctx->buffer)+1);  // cached sent data
 
 			post_receive(id);
 
 			ctx->msg->id = MSG_READY;
 			send_message(id);
-		}
+
+		} 
 	}
 }
 
