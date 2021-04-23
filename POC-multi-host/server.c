@@ -1,6 +1,9 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 #include "common.h"
 #include "messages.h"
@@ -8,6 +11,8 @@
 #define MAX_FILE_NAME 256
 
 struct timespec ts1, ts2;
+
+char 	*global_data_buffer;
 
 struct conn_context {
 	char 	*buffer;
@@ -128,8 +133,11 @@ static void on_completion(struct ibv_wc *wc) {
 
 			//  print when buffer content has changed
 			if(strcmp(ctx->last_time_data, ctx->buffer) != 0) {
-				// printf("received %i bytes.\n", size);
-				printf("Received data: %s\n", ctx->buffer);
+				struct sockaddr *client_addr = rdma_get_peer_addr(id);
+				struct sockaddr_in *client_addr2 = (struct sockaddr_in *)client_addr;
+				char* client_ip = inet_ntoa(client_addr2->sin_addr);
+
+				printf("[%s] %s\n", client_ip, ctx->buffer);
 			}
 
 			strncpy(ctx->last_time_data, ctx->buffer, strlen(ctx->buffer)+1);  // cached sent data
@@ -138,7 +146,6 @@ static void on_completion(struct ibv_wc *wc) {
 
 			ctx->msg->id = MSG_READY;
 			send_message(id);
-
 		} 
 	}
 }
@@ -164,6 +171,8 @@ static void on_disconnect(struct rdma_cm_id *id) {
 }
 
 int main(int argc, char **argv) {
+	
+	// posix_memalign((void **)&global_data_buffer, sysconf(_SC_PAGESIZE), BUFFER_SIZE);  // similar with malloc()
 	rc_init(
 		on_pre_conn,
 		on_connection,
