@@ -63,6 +63,28 @@ static void send_message(struct rdma_cm_id *id) {
     TEST_NZ(ibv_post_send(id->qp, &wr, &bad_wr));
 }
 
+static void send_respose(struct rdma_cm_id *id, uint32_t result) {
+    struct conn_context *ctx = (struct conn_context *)id->context;
+
+    struct ibv_send_wr wr, *bad_wr = NULL;
+    struct ibv_sge     sge;
+
+    memset(&wr, 0, sizeof(wr));
+
+    wr.wr_id = (uintptr_t)id;
+    wr.opcode = IBV_WR_SEND_WITH_IMM;
+    wr.sg_list = &sge;
+    wr.num_sge = 1;
+    wr.send_flags = IBV_SEND_SIGNALED;
+    wr.imm_data = htonl(result);
+
+    sge.addr = (uintptr_t)ctx->msg;
+    sge.length = sizeof(*ctx->msg);
+    sge.lkey = ctx->msg_mr->lkey;
+
+    TEST_NZ(ibv_post_send(id->qp, &wr, &bad_wr));
+}
+
 // This is for client’s RDMA writes
 static void post_receive(struct rdma_cm_id *id) {
     struct ibv_recv_wr wr, *bad_wr = NULL;
@@ -126,19 +148,16 @@ static void on_completion(struct ibv_wc *wc) {
 
             // don't need post_receive() since we're done with this connection
         } else {
-            //  print when buffer content has changed
-            if(strcmp(ctx->last_time_data, ctx->buffer) != 0) {
-                // printf("received %i bytes.\n", size);
-                printf("Received data: %s\n", ctx->buffer);
-            }
+            printf("Received data: %s\n", ctx->buffer);
+            // strncpy(ctx->last_time_data, ctx->buffer, strlen(ctx->buffer) + 1);  // cached sent data
 
-            strncpy(ctx->last_time_data, ctx->buffer, strlen(ctx->buffer) + 1);  // cached sent data
+            // execute dummy app
             int res = add_one(ctx->buffer);
-
             post_receive(id);
 
             ctx->msg->id = MSG_READY;
-            send_message(id);
+            send_respose(id, res);
+            // send_message(id);
         }
     }
 }
@@ -149,7 +168,7 @@ static void on_disconnect(struct rdma_cm_id *id) {
 
     clock_gettime(CLOCK_REALTIME, &ts2);
 
-    get_elapsed_time(ts1, ts2);
+    // get_elapsed_time(ts1, ts2);
     // printf("Elapsed time: %lf s\n", ((double) (transfer_end-transfer_start)) / CLOCKS_PER_SEC);
 
     ibv_dereg_mr(ctx->buffer_mr);
@@ -158,7 +177,7 @@ static void on_disconnect(struct rdma_cm_id *id) {
     free(ctx->buffer);
     free(ctx->msg);
 
-    printf("finished transferring %s\n", ctx->file_name);
+    printf("Finished transferring %s\n\n", ctx->file_name);
 
     free(ctx);
 }
