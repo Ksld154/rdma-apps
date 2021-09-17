@@ -1,7 +1,0 @@
-{
-    "files.associations": {
-        "*.geom": "glsl",
-        "*.asm": "asm",
-        "libgen.h": "c"
-    }
-}
