@@ -13,3 +13,5 @@
 
 *.o
 rdma-notify-POC/*
+.vscode/*
+*.img
