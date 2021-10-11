@@ -22,11 +22,13 @@ struct conn_context {
 
     int  fd;
     char file_name[MAX_FILE_NAME];
+    int  payload_idx;
 };
 
 struct global_data {
     char *         buffer;
     struct ibv_mr *buffer_mr;
+    int            active_conn;
 };
 
 // map<int, int> mapClients;
@@ -116,13 +118,16 @@ static void on_pre_conn(struct rdma_cm_id *id) {
 // After the connection is established, on_connection() sends the memory region details to the client,
 // so that client can directly send data chunk into remote buffer
 static void on_connection(struct rdma_cm_id *id) {
+    test1->active_conn++;
+
     struct conn_context *ctx = (struct conn_context *)id->context;
 
     ctx->msg->id = MSG_MR;
     ctx->msg->data.mr.addr = (uintptr_t)ctx->buffer_mr->addr;
     ctx->msg->data.mr.rkey = ctx->buffer_mr->rkey;
-    clock_gettime(CLOCK_REALTIME, &ts1);
 
+    ctx->payload_idx = 0;
+    clock_gettime(CLOCK_REALTIME, &ts1);
     send_message(id);
 }
 
@@ -134,24 +139,25 @@ static void on_completion(struct ibv_wc *wc) {
         uint32_t size = ntohl(wc->imm_data);
 
         if(size == 0) {
+            // don't need post_receive() since we're done with this connection
             ctx->msg->id = MSG_DONE;
             send_message(id);
-            printf("received 0 bytes. DONE\n");
+            printf("received 0 bytes. Sending DONE\n");
 
-            // don't need post_receive() since we're done with this connection
         } else if(ctx->file_name[0]) {
             // we have filename and an open fd, so we are ready to append client's data into disk
-            printf("received %i bytes.\n", size);
+            uint16_t remote_port = rdma_get_dst_port(id);
+            printf("[%d, %d] received %i bytes.\n", remote_port, ctx->payload_idx, size);
 
             ssize_t ret = write(ctx->fd, ctx->buffer, size);
             if(ret != size)
                 rc_die("write() failed");
-
             post_receive(id);
 
             ctx->msg->id = MSG_READY;
             send_message(id);
 
+            ctx->payload_idx++;
         } else {
             // we have just got filename,
             // so we need to open an fd and reply MSG_READY to notify client we are ready to receive data chunks
@@ -182,15 +188,19 @@ static void on_disconnect(struct rdma_cm_id *id) {
     printf("buffer address: %p\n", ctx->buffer);
 
     clock_gettime(CLOCK_REALTIME, &ts2);
-
     get_elapsed_time(ts1, ts2);
-    // printf("Elapsed time: %lf s\n", ((double) (transfer_end-transfer_start)) / CLOCKS_PER_SEC);
+
+    test1->active_conn--;
+    std::cout << test1->active_conn << std::endl;
+    // if(test1->active_conn == 0) {
+    //     ibv_dereg_mr(ctx->buffer_mr);
+    //     ibv_dereg_mr(ctx->msg_mr);
+    // }
 
     ibv_dereg_mr(ctx->buffer_mr);
     ibv_dereg_mr(ctx->msg_mr);
-
-    free(ctx->buffer);
-    free(ctx->msg);
+    // free(ctx->buffer);
+    // free(ctx->msg);
     printf("finished transferring %s\n", ctx->file_name);
 
     free(ctx);
@@ -201,6 +211,7 @@ int main(int argc, char **argv) {
     // global_data *test1 = new global_data();
     posix_memalign((void **)&test1->buffer, sysconf(_SC_PAGESIZE), BUFFER_SIZE);  // similar with malloc()
     printf("buffer address: %p\n", test1->buffer);
+    test1->active_conn = 0;
 
     // TEST_Z(test1->buffer_mr = ibv_reg_mr(rc_get_pd(), test1->buffer, BUFFER_SIZE, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE));
     // printf("buffer address: %p\n", global_data);
