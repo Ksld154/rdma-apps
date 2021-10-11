@@ -73,7 +73,7 @@ bool sock_client::send_data(std::string data) {
         close(fd);
         return false;
     }
-    printf("%s\n", data.c_str());
+    // printf("%s\n", data.c_str());
 
     return true;
 }
@@ -86,7 +86,8 @@ std::string sock_client::recv_data() {
         close(fd);
         return "";
     }
-    printf("receive %d bytes: %s\n", len, buff);
+    // printf("receive %d bytes: %s\n", len, buff);
+    printf("receive from sock_server: %s\n", buff);
 
     string resp = buff;
     return resp;

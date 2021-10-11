@@ -38,10 +38,10 @@ int main() {
     }
 
     while((len = recvfrom(fd, buff, 8192, 0, (struct sockaddr *)&from, &fromlen)) > 0) {
-        printf("recvfrom: %s\n", buff);
+        printf("recv from sock client: %s\n", buff);
         int payload = atoi(buff);
-        printf("%d\n", payload);
         payload++;
+        printf("calculate result: %d\n", payload);
 
         std::string resp = std::to_string(payload);
         strcpy(buff, resp.c_str());
