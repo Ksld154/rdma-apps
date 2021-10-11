@@ -23,9 +23,11 @@ struct client_context {
 
     int         fd;
     const char *file_name;
+    int         payload_idx;
 };
 
 bool                    SENDING_FLAG = true;
+bool                    STOP = false;
 std::condition_variable cv_flag;
 std::mutex              mtx;
 
@@ -90,10 +92,11 @@ static void send_next_chunk(struct rdma_cm_id *id) {
     struct client_context *ctx = (struct client_context *)id->context;
 
     ssize_t size = read(ctx->fd, ctx->buffer, BUFFER_SIZE);
-    std::cout << size << std::endl;
+    // std::cout << size << std::endl;
     if(size == -1)
         rc_die("read() failed\n");
 
+    ctx->payload_idx++;
     write_remote(id, size);
 }
 
@@ -118,12 +121,14 @@ static void on_pre_conn(struct rdma_cm_id *id) {
     posix_memalign((void **)&ctx->msg, sysconf(_SC_PAGESIZE), sizeof(*ctx->msg));
     TEST_Z(ctx->msg_mr = ibv_reg_mr(rc_get_pd(), ctx->msg, sizeof(*ctx->msg), IBV_ACCESS_LOCAL_WRITE));
 
+    ctx->payload_idx = 0;
     post_receive(id);
 }
 
 static void on_completion(struct ibv_wc *wc) {
     struct rdma_cm_id *    id = (struct rdma_cm_id *)(uintptr_t)(wc->wr_id);
     struct client_context *ctx = (struct client_context *)id->context;
+    uint16_t               src_port = rdma_get_src_port(id);
 
     if(wc->opcode & IBV_WC_RECV) {
         if(ctx->msg->id == MSG_MR) {
@@ -132,8 +137,9 @@ static void on_completion(struct ibv_wc *wc) {
 
             printf("received MR, sending file name\n");
             send_file_name(id);
+
         } else if(ctx->msg->id == MSG_READY) {
-            printf("received READY, sending chunk\n");
+            printf("[%d, %d] received READY, sending chunk\n", src_port, ctx->payload_idx);
 
             // block until flag flip
             std::unique_lock<std::mutex> lock(mtx);
@@ -141,27 +147,32 @@ static void on_completion(struct ibv_wc *wc) {
             lock.unlock();
 
             send_next_chunk(id);
+        } else if(ctx->msg->id == MSG_DONE) {
+            printf("received DONE, disconnecting\n");
+            STOP = true;
+            rc_disconnect(id);
+            return;
         }
-    } else if(ctx->msg->id == MSG_DONE) {
-        printf("received DONE, disconnecting\n");
-        rc_disconnect(id);
-        return;
-    }
 
-    post_receive(id);
+        post_receive(id);
+    }
 }
 
 void flip_sending_flag() {
     while(1) {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        std::this_thread::sleep_for(std::chrono::seconds(2));
 
         std::lock_guard<std::mutex> lock(mtx);
         SENDING_FLAG = !SENDING_FLAG;
-        std::cout << "Flip sending bit " << SENDING_FLAG << std::endl;
         if(SENDING_FLAG == true) {
+            std::cout << "Flip sending bit " << SENDING_FLAG << std::endl;
             cv_flag.notify_one();
         }
         lock.~lock_guard();
+
+        if(STOP) {
+            return;
+        }
     }
     return;
 }
