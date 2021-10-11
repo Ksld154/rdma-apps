@@ -13,3 +13,4 @@
 
 *.o
 rdma-notify-POC/*
+*.img
