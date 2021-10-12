@@ -99,12 +99,12 @@ static void on_pre_conn(struct rdma_cm_id *id) {
     ctx->file_name[0] = '\0';  // take this to mean we don't have the file name
 
     // buffer for receiving client's data chunk
-    // posix_memalign((void **)&ctx->buffer, sysconf(_SC_PAGESIZE), BUFFER_SIZE);  // similar with malloc()
-    // TEST_Z(ctx->buffer_mr = ibv_reg_mr(rc_get_pd(), ctx->buffer, BUFFER_SIZE, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE));
+    // posix_memalign((void **)&ctx->buffer, sysconf(_SC_PAGESIZE), TDMA_BUFFER_SIZE);  // similar with malloc()
+    // TEST_Z(ctx->buffer_mr = ibv_reg_mr(rc_get_pd(), ctx->buffer, TDMA_BUFFER_SIZE, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE));
 
     printf("buffer address: %p\n", test1->buffer);
     ctx->buffer = test1->buffer;
-    TEST_Z(ctx->buffer_mr = ibv_reg_mr(rc_get_pd(), ctx->buffer, BUFFER_SIZE, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE));
+    TEST_Z(ctx->buffer_mr = ibv_reg_mr(rc_get_pd(), ctx->buffer, TDMA_BUFFER_SIZE, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE));
 
     // ctx->buffer_mr = shared_data->buffer_mr;
 
@@ -209,11 +209,11 @@ static void on_disconnect(struct rdma_cm_id *id) {
 int main(int argc, char **argv) {
     // buffer for receiving client's data chunk
     // global_data *test1 = new global_data();
-    posix_memalign((void **)&test1->buffer, sysconf(_SC_PAGESIZE), BUFFER_SIZE);  // similar with malloc()
+    posix_memalign((void **)&test1->buffer, sysconf(_SC_PAGESIZE), TDMA_BUFFER_SIZE);  // similar with malloc()
     printf("buffer address: %p\n", test1->buffer);
     test1->active_conn = 0;
 
-    // TEST_Z(test1->buffer_mr = ibv_reg_mr(rc_get_pd(), test1->buffer, BUFFER_SIZE, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE));
+    // TEST_Z(test1->buffer_mr = ibv_reg_mr(rc_get_pd(), test1->buffer, TDMA_BUFFER_SIZE, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE));
     // printf("buffer address: %p\n", global_data);
 
     rc_init(
