@@ -16,6 +16,7 @@ struct client_context {
 
     int         fd;
     const char *file_name;
+    int         payload_idx;
 };
 
 static void write_remote(struct rdma_cm_id *id, uint32_t len) {
@@ -69,7 +70,7 @@ static void send_next_chunk(struct rdma_cm_id *id) {
     struct client_context *ctx = (struct client_context *)id->context;
 
     ssize_t size = read(ctx->fd, ctx->buffer, BUFFER_SIZE);
-    printf("%ld\n", size);
+    // printf("%ld\n", size);
     if(size == -1)
         rc_die("read() failed\n");
 
@@ -88,6 +89,7 @@ static void send_file_name(struct rdma_cm_id *id) {
 
 static void on_pre_conn(struct rdma_cm_id *id) {
     struct client_context *ctx = (struct client_context *)id->context;
+    ctx->payload_idx = 0;
 
     // for buffering the data chucks that are sending to server
     posix_memalign((void **)&ctx->buffer, sysconf(_SC_PAGESIZE), BUFFER_SIZE);
@@ -103,6 +105,7 @@ static void on_pre_conn(struct rdma_cm_id *id) {
 static void on_completion(struct ibv_wc *wc) {
     struct rdma_cm_id *    id = (struct rdma_cm_id *)(uintptr_t)(wc->wr_id);
     struct client_context *ctx = (struct client_context *)id->context;
+    uint16_t               src_port = rdma_get_src_port(id);
 
     if(wc->opcode & IBV_WC_RECV) {
         if(ctx->msg->id == MSG_MR) {
@@ -112,8 +115,11 @@ static void on_completion(struct ibv_wc *wc) {
             printf("received MR, sending file name\n");
             send_file_name(id);
         } else if(ctx->msg->id == MSG_READY) {
-            printf("received READY, sending chunk\n");
+            // printf("received READY, sending chunk\n");
+            printf("[%d, %d] received READY, sending chunk\n", src_port, ctx->payload_idx);
+
             send_next_chunk(id);
+            ctx->payload_idx++;
         } else if(ctx->msg->id == MSG_DONE) {
             printf("received DONE, disconnecting\n");
             rc_disconnect(id);
