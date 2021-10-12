@@ -69,7 +69,7 @@ static void send_next_chunk(struct rdma_cm_id *id) {
     struct client_context *ctx = (struct client_context *)id->context;
 
     ssize_t size = read(ctx->fd, ctx->buffer, BUFFER_SIZE);
-    // printf("%ld\n", size);
+    printf("%ld\n", size);
     if(size == -1)
         rc_die("read() failed\n");
 

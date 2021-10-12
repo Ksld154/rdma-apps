@@ -8,8 +8,8 @@
 #include <mutex>
 #include <thread>
 
+#include "common.h"
 #include "messages.h"
-#include "tdma-common.hpp"
 
 struct client_context {
     char *         buffer;
@@ -91,7 +91,7 @@ static void post_receive(struct rdma_cm_id *id) {
 static void send_next_chunk(struct rdma_cm_id *id) {
     struct client_context *ctx = (struct client_context *)id->context;
 
-    ssize_t size = read(ctx->fd, ctx->buffer, BUFFER_SIZE);
+    ssize_t size = read(ctx->fd, ctx->buffer, TDMA_BUFFER_SIZE);
     // std::cout << size << std::endl;
     if(size == -1)
         rc_die("read() failed\n");
@@ -114,8 +114,8 @@ static void on_pre_conn(struct rdma_cm_id *id) {
     struct client_context *ctx = (struct client_context *)id->context;
 
     // for buffering the data chucks that are sending to server
-    posix_memalign((void **)&ctx->buffer, sysconf(_SC_PAGESIZE), BUFFER_SIZE);
-    TEST_Z(ctx->buffer_mr = ibv_reg_mr(rc_get_pd(), ctx->buffer, BUFFER_SIZE, 0));
+    posix_memalign((void **)&ctx->buffer, sysconf(_SC_PAGESIZE), TDMA_BUFFER_SIZE);
+    TEST_Z(ctx->buffer_mr = ibv_reg_mr(rc_get_pd(), ctx->buffer, TDMA_BUFFER_SIZE, 0));
 
     // for receiving server's control message
     posix_memalign((void **)&ctx->msg, sysconf(_SC_PAGESIZE), sizeof(*ctx->msg));
