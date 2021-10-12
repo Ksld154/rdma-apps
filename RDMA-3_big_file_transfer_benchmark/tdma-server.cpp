@@ -134,6 +134,7 @@ static void on_connection(struct rdma_cm_id *id) {
 static void on_completion(struct ibv_wc *wc) {
     struct rdma_cm_id *  id = (struct rdma_cm_id *)(uintptr_t)wc->wr_id;
     struct conn_context *ctx = (struct conn_context *)id->context;
+    uint16_t             remote_port = rdma_get_dst_port(id);
 
     if(wc->opcode == IBV_WC_RECV_RDMA_WITH_IMM) {
         uint32_t size = ntohl(wc->imm_data);
@@ -146,7 +147,7 @@ static void on_completion(struct ibv_wc *wc) {
 
         } else if(ctx->file_name[0]) {
             // we have filename and an open fd, so we are ready to append client's data into disk
-            uint16_t remote_port = rdma_get_dst_port(id);
+            // uint16_t remote_port = rdma_get_dst_port(id);
             printf("[%d, %d] received %i bytes.\n", remote_port, ctx->payload_idx, size);
 
             ssize_t ret = write(ctx->fd, ctx->buffer, size);

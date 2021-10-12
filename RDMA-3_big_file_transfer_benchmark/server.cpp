@@ -18,6 +18,8 @@ struct conn_context {
 
     int  fd;
     char file_name[MAX_FILE_NAME];
+    int  payload_idx;
+    int  host_port;
 };
 
 double get_elapsed_time(struct timespec t1, struct timespec t2) {
@@ -83,6 +85,8 @@ static void on_pre_conn(struct rdma_cm_id *id) {
 
     id->context = ctx;
     ctx->file_name[0] = '\0';  // take this to mean we don't have the file name
+    ctx->payload_idx = 0;
+    ctx->host_port = -1;
 
     // buffer for receiving client's data chunk
     posix_memalign((void **)&ctx->buffer, sysconf(_SC_PAGESIZE), BUFFER_SIZE);  // similar with malloc()
@@ -111,6 +115,8 @@ static void on_connection(struct rdma_cm_id *id) {
 static void on_completion(struct ibv_wc *wc) {
     struct rdma_cm_id *  id = (struct rdma_cm_id *)(uintptr_t)wc->wr_id;
     struct conn_context *ctx = (struct conn_context *)id->context;
+    uint16_t             remote_port = rdma_get_dst_port(id);
+    ctx->host_port = remote_port;
 
     if(wc->opcode == IBV_WC_RECV_RDMA_WITH_IMM) {
         uint32_t size = ntohl(wc->imm_data);
@@ -122,7 +128,7 @@ static void on_completion(struct ibv_wc *wc) {
             // don't need post_receive() since we're done with this connection
         } else if(ctx->file_name[0]) {
             // we have filename and an open fd, so we are ready to append client's data into disk
-            printf("received %i bytes.\n", size);
+            printf("[%d %d] received %i bytes.\n", ctx->host_port, ctx->payload_idx, size);
 
             ssize_t ret = write(ctx->fd, ctx->buffer, size);
             if(ret != size)
@@ -133,6 +139,7 @@ static void on_completion(struct ibv_wc *wc) {
             ctx->msg->id = MSG_READY;
             send_message(id);
 
+            ctx->payload_idx++;
         } else {
             // we have just got filename,
             // so we need to open an fd and reply MSG_READY to notify client we are ready to receive data chunks
@@ -141,10 +148,8 @@ static void on_completion(struct ibv_wc *wc) {
             ctx->file_name[size - 1] = '\0';
 
             printf("opening file %s\n", ctx->file_name);
-            // clock_gettime(CLOCK_REALTIME, &ts1);
 
             ctx->fd = open(ctx->file_name, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-
             if(ctx->fd == -1)
                 rc_die("open() failed");
 
@@ -162,9 +167,7 @@ static void on_disconnect(struct rdma_cm_id *id) {
     printf("buffer address: %p\n", ctx->buffer);
 
     clock_gettime(CLOCK_REALTIME, &ts2);
-
     get_elapsed_time(ts1, ts2);
-    // printf("Elapsed time: %lf s\n", ((double) (transfer_end-transfer_start)) / CLOCKS_PER_SEC);
 
     ibv_dereg_mr(ctx->buffer_mr);
     ibv_dereg_mr(ctx->msg_mr);
